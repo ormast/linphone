@@ -280,7 +280,19 @@ static void call_process_response(void *op_base, const belle_sip_response_event_
 				case SalOpStateActive: /*re-invite, INFO, UPDATE case*/
 					if (strcmp("INVITE",method)==0){
 						if (code >=200 && code<300) {
+						    if ((header_content_type = belle_sip_message_get_header_by_type(req,belle_sip_header_content_type_t))
+    							&& strcmp("application",belle_sip_header_content_type_get_type(header_content_type))==0
+    							&& strcmp("csta+v6+json",belle_sip_header_content_type_get_subtype(header_content_type))==0) {
+    							
+								// We have response from INVITE for TR87. Ignore SDP handling 
+								ms_message("Received TR87 session response on op [%p], code [%i]",op,code);
+                                op->sdp_answer=NULL;
+								// Add custom inline header to the response for hook in a callback
+                                belle_sip_message_add_header(BELLE_SIP_MESSAGE(response),belle_sip_header_create( "PX-Session-Type", "csta"));
+    						}
+    						else {
 							handle_sdp_from_response(op,response);
+						    }
 							ack=belle_sip_dialog_create_ack(op->dialog,belle_sip_dialog_get_local_seq_number(op->dialog));
 							if (ack==NULL) {
 								ms_error("This call has been already terminated.");
@@ -298,6 +310,7 @@ static void call_process_response(void *op_base, const belle_sip_response_event_
 							call_set_error(op,response);
 						}
 					}else if (strcmp("INFO",method)==0){
+						SalBody salbody;
 						if (code == 491
 							&& (header_content_type = belle_sip_message_get_header_by_type(req,belle_sip_header_content_type_t))
 							&& strcmp("application",belle_sip_header_content_type_get_type(header_content_type))==0
@@ -306,8 +319,27 @@ static void call_process_response(void *op_base, const belle_sip_response_event_
 						belle_sip_source_t *s=sal_create_timer(op->base.root,vfu_retry,sal_op_ref(op), retry_in, "vfu request retry");
 						ms_message("Rejected vfu request on op [%p], just retry in [%ui] ms",op,retry_in);
 						belle_sip_object_unref(s);
+						}else if ((header_content_type = belle_sip_message_get_header_by_type(req,belle_sip_header_content_type_t))
+								&& strcmp("application",belle_sip_header_content_type_get_type(header_content_type))==0
+								&& strcmp("csta+v6+json",belle_sip_header_content_type_get_subtype(header_content_type))==0) {
+
+							// CSTA session
+							char response_code[10];
+                        	snprintf(response_code,sizeof(response_code), "%i", code);
+							belle_sip_message_add_header(BELLE_SIP_MESSAGE(response),belle_sip_header_create( "Response-code", response_code));
+
+							ms_message("Processing TR87 sip-info response on op [%p], response code [%i]",op,code);
+								
+                			if (sal_op_get_body(op,(belle_sip_message_t*)response,&salbody)) {
+            					op->base.root->callbacks.info_received(op,&salbody);
 						}else {
+                				op->base.root->callbacks.info_received(op,NULL);
+                			}
+						}
+						else {
 								/*ignoring*/
+							header_content_type = belle_sip_message_get_header_by_type(req,belle_sip_header_content_type_t);
+							ms_message("Ignoring SIP-INFO response. Code [%i], subtype [%s]",code,belle_sip_header_content_type_get_subtype(header_content_type));
 						}
 					}else if (strcmp("UPDATE",method)==0){
 						op->base.root->callbacks.call_accepted(op); /*INVITE*/

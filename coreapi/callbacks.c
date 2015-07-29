@@ -588,6 +588,15 @@ static void call_accepted(SalOp *op){
 			if (update_state) linphone_call_set_state(call, LinphoneCallStreamsRunning, "Streams running");
 		}
 	}else{
+		// Check for custom inline header "PX-Session-Type". If "csta", change the state to Connected and return.
+	    const char *csta_custom_header = sal_custom_header_find(sal_op_get_recv_custom_header(op),"PX-Session-Type");
+	    if (csta_custom_header && strcmp("csta", csta_custom_header) == 0) {
+			// We have response from CSTA Gateway
+			ms_message("Call connected (TR87 session ready)");
+			linphone_call_set_state(call, LinphoneCallConnected, "Connected (TR87 session ready)");
+            return;
+	    }
+	    
 		switch (call->prevstate){
 			/*send a bye only in case of outgoing state*/
 			case LinphoneCallOutgoingInit:
